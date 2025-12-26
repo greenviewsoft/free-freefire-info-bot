@@ -3,33 +3,29 @@ from discord.ext import commands
 import aiohttp
 import os
 from datetime import datetime
-from dotenv import load_dotenv
 from flask import Flask
 
 # ======================
-# LOAD ENV
+# ENV VARIABLES (RENDER)
 # ======================
-load_dotenv()
+TOKEN = os.environ.get("TOKEN")
+PORT = int(os.environ.get("PORT", 10000))
 
-TOKEN = os.getenv("TOKEN")
-PORT = int(os.getenv("PORT", 5000))
-
-# ⚠️ Move sensitive values to .env before public release
-FF_API_KEY = os.getenv("FF_API_KEY", "LFy6c48ZmjfKpWoswLka86gZSGCDoB")
-FF_USER_UID = os.getenv("FF_USER_UID", "0UQuFDoZiFVfw8OXB2iSiS1GYNz2")
-FF_REGION = os.getenv("FF_REGION", "bd")
+FF_API_KEY = os.environ.get("FF_API_KEY")
+FF_USER_UID = os.environ.get("FF_USER_UID")
+FF_REGION = os.environ.get("FF_REGION", "bd")
 
 if not TOKEN:
-    raise ValueError("TOKEN missing in .env")
+    raise RuntimeError("❌ TOKEN not set in Render Environment Variables")
 
 # ======================
-# FLASK (OPTIONAL – FOR HOSTING)
+# FLASK KEEP-ALIVE (RENDER)
 # ======================
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "UniqueTopup Bot is running"
+    return "UniqueTopup Free Fire Bot is running"
 
 def run_flask():
     app.run(host="0.0.0.0", port=PORT)
@@ -39,32 +35,36 @@ def run_flask():
 # ======================
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
 
+bot = commands.Bot(command_prefix="!", intents=intents, reconnect=True)
 session = None
 
-# ======================
-# FREE FIRE API
-# ======================
 FF_API_URL = "https://proapis.hlgamingofficial.com/main/games/freefire/account/api"
 
 # ======================
 # HELPERS
 # ======================
-def ts(t):
+def ts(value):
     try:
-        return datetime.utcfromtimestamp(int(t)).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.utcfromtimestamp(int(value)).strftime("%Y-%m-%d %H:%M:%S")
     except:
         return "Not found"
 
 # ======================
-# BOT EVENTS
+# EVENTS
 # ======================
 @bot.event
 async def on_ready():
     global session
-    session = aiohttp.ClientSession()
+    if session is None:
+        session = aiohttp.ClientSession()
+
     print(f"✅ Logged in as {bot.user}")
+
+    # Start Flask ONLY ON RENDER
+    if os.environ.get("RENDER"):
+        import threading
+        threading.Thread(target=run_flask, daemon=True).start()
 
 @bot.event
 async def on_disconnect():
@@ -80,7 +80,7 @@ async def info(ctx, uid: str):
         return await ctx.send("❌ UID must be numeric")
 
     if session is None:
-        return await ctx.send("⚠️ Bot is starting, please try again in a moment.")
+        return await ctx.send("⚠️ Bot is starting, please try again.")
 
     params = {
         "sectionName": "AllData",
@@ -94,6 +94,7 @@ async def info(ctx, uid: str):
         async with session.get(FF_API_URL, params=params) as resp:
             if resp.status != 200:
                 return await ctx.send("⚠️ Free Fire service unavailable")
+
             data = await resp.json()
 
     r = data.get("result", {})
@@ -132,7 +133,6 @@ async def info(ctx, uid: str):
 
         "**┌ PET DETAILS**\n"
         f"├─ Equipped?: {'Yes' if pet.get('isSelected') else 'No'}\n"
-        f"├─ Pet Name: {pet.get('name','Not found')}\n"
         f"├─ Pet Exp: {pet.get('exp','Not found')}\n"
         f"└─ Pet Level: {pet.get('level','Not found')}\n\n"
 
@@ -166,6 +166,6 @@ async def info(ctx, uid: str):
     await ctx.send(embed=embed)
 
 # ======================
-# RUN BOT
+# RUN BOT (SINGLE LOGIN)
 # ======================
 bot.run(TOKEN)
